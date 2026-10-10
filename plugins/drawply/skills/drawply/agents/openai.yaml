@@ -1,0 +1,7 @@
+interface:
+  display_name: "Drawply"
+  short_description: "Draw feedback directly on visual results"
+  default_prompt: "Use $drawply to show this result for review."
+
+policy:
+  allow_implicit_invocation: true

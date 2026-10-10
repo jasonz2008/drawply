@@ -1,0 +1,20 @@
+{
+  "name": "drawply-local",
+  "interface": {
+    "displayName": "Drawply"
+  },
+  "plugins": [
+    {
+      "name": "drawply",
+      "source": {
+        "source": "local",
+        "path": "./plugins/drawply"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

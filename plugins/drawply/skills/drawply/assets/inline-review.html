@@ -1,0 +1,356 @@
+<style>
+#__REVIEW_ID__ { display: grid; gap: 12px; }
+#__REVIEW_ID__ .review-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-inline-end: 90px; }
+#__REVIEW_ID__ .review-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+#__REVIEW_ID__ .review-add { margin-inline-start: auto; background: #2563eb; color: #ffffff; }
+#__REVIEW_ID__ .review-add:hover:not(:disabled) { background: #1d4ed8; }
+#__REVIEW_ID__ .review-stage { width: 100%; position: relative; }
+#__REVIEW_ID__ canvas { display: block; width: 100%; height: auto; touch-action: none; cursor: crosshair; }
+#__REVIEW_ID__ .review-text-editor { position: absolute; width: min(220px, 100%); z-index: 1; }
+#__REVIEW_ID__ .review-stage { border: 1px solid var(--border); }
+#__REVIEW_ID__ .review-text-editor textarea { field-sizing: content; }
+#__REVIEW_ID__ .review-text-editor[hidden] { display: none; }
+</style>
+<div id="__REVIEW_ID__">
+  <div class="review-toolbar" aria-label="Drawing tools">
+    <div class="review-tools">
+    <button type="button" class="btn" data-tool="pen" aria-pressed="true"><i data-lucide="pencil" aria-hidden="true"></i> Pen</button>
+    <button type="button" class="btn" data-tool="arrow" aria-pressed="false"><i data-lucide="move-up-right" aria-hidden="true"></i> Arrow</button>
+    <button type="button" class="btn" data-tool="box" aria-pressed="false"><i data-lucide="square" aria-hidden="true"></i> Box</button>
+    <button type="button" class="btn" data-tool="text" aria-pressed="false"><i data-lucide="type" aria-hidden="true"></i> Text</button>
+    <button type="button" class="btn" id="review-undo" aria-keyshortcuts="Control+Z Meta+Z" data-tooltip="Undo drawing (Ctrl+Z / ⌘Z)" disabled>Undo</button>
+    <button type="button" class="btn btn-ghost" id="review-redo" aria-label="Redo" data-tooltip="Redo (Ctrl+Shift+Z)" disabled><i data-lucide="redo-2" aria-hidden="true"></i></button>
+    <button type="button" class="btn btn-ghost" id="review-clear" disabled>Clear marks</button>
+    </div>
+    <button type="button" class="btn btn-primary review-add" id="review-add-chat" data-tooltip="Copy the image, then paste it in chat" disabled><i data-lucide="clipboard-copy" aria-hidden="true"></i> Add to chat</button>
+  </div>
+  <div class="viz-row">
+    <label class="form-label" for="review-color">Ink color</label>
+    <input type="color" class="form-control form-control-color" id="review-color" value="#ff453a" aria-label="Ink color for pen, arrow, box, and text" list="review-colors">
+    <datalist id="review-colors">
+      <option value="#ff453a" label="Red"></option>
+      <option value="#ff9f0a" label="Orange"></option>
+      <option value="#ffd60a" label="Yellow"></option>
+      <option value="#30d158" label="Green"></option>
+      <option value="#0a84ff" label="Blue"></option>
+      <option value="#bf5af2" label="Purple"></option>
+      <option value="#ffffff" label="White"></option>
+      <option value="#000000" label="Black"></option>
+    </datalist>
+    <button type="button" class="btn btn-ghost" id="review-export" data-tooltip="Save your drawing, then attach it in the chat" disabled><i data-lucide="download" aria-hidden="true"></i> Save drawing</button>
+  </div>
+  <div class="review-stage">
+    <canvas id="review-canvas" width="__WIDTH__" height="__HEIGHT__" role="img" aria-label="Visual result. Draw corrections with a mouse or touch, then describe changes in the chat.">Visual result for annotation.</canvas>
+    <div id="review-text-editor" class="review-text-editor card" hidden>
+      <textarea id="review-text-input" aria-label="Text on result" class="form-control" rows="1" maxlength="240" placeholder="Type here…"></textarea>
+      <div class="viz-row">
+        <button type="button" class="btn btn-ghost" id="review-text-add" aria-label="Save text"><i data-lucide="check" aria-hidden="true"></i></button>
+        <button type="button" class="btn btn-ghost" id="review-text-cancel" aria-label="Cancel text"><i data-lucide="x" aria-hidden="true"></i></button>
+      </div>
+    </div>
+  </div>
+  <span class="text-small" id="review-status" role="status" aria-live="polite">Loading result…</span>
+</div>
+<script>
+(() => {
+  const root = document.getElementById('__REVIEW_ID__');
+  const canvas = root.querySelector('#review-canvas');
+  const ctx = canvas.getContext('2d');
+  const status = root.querySelector('#review-status');
+  const undo = root.querySelector('#review-undo');
+  const clear = root.querySelector('#review-clear');
+  const color = root.querySelector('#review-color');
+  const exportButton = root.querySelector('#review-export');
+  const addChat = root.querySelector('#review-add-chat');
+  const textEditor = root.querySelector('#review-text-editor');
+  const textInput = root.querySelector('#review-text-input');
+  const textAdd = root.querySelector('#review-text-add');
+  const textCancel = root.querySelector('#review-text-cancel');
+  const source = __SOURCE_JSON__;
+  const image = new Image();
+  const fontSize = Math.min(32, Math.max(12, Math.floor(__WIDTH__/24)));
+  const lineHeight = Math.ceil(fontSize*1.25);
+  const textFont = `500 ${fontSize}px sans-serif`;
+  let strokes = [], active = null, tool = 'pen', loaded = false, busy = false;
+  let draft = null, editing = -1, past = [], future = [];
+  let locallyEdited = false, restoredCompact = false, saveTimer;
+  const copy = items => items.slice();
+  const redo = root.querySelector('#review-redo');
+  function remember() { past.push(copy(strokes)); if(past.length>50)past.shift(); future=[]; }
+  // Annotation ink is a user-selected color and must survive theme changes.
+  const defaultInk = '#ff453a';
+  let ink = defaultInk;
+  const validInk = value => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
+  const savedStateBytes = 12500;
+  function point(e) {
+    const r = canvas.getBoundingClientRect();
+    return [Math.round(Math.max(0, Math.min(__WIDTH__, (e.clientX-r.left)*__WIDTH__/r.width))),
+      Math.round(Math.max(0, Math.min(__HEIGHT__, (e.clientY-r.top)*__HEIGHT__/r.height)))];
+  }
+  function paint(s) {
+    const points = s.points;
+    if (!points.length) return;
+    ctx.strokeStyle = s.ink || defaultInk; ctx.fillStyle = s.ink || defaultInk; ctx.lineWidth = 6;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const a = points[0], b = points[points.length-1];
+    if (s.tool === 'text') {
+      ctx.font = textFont; ctx.textBaseline = 'top';
+      ctx.lineWidth = 4;
+      // Contrast backing is part of the annotation, independent of the host theme.
+      const rgb = (s.ink || defaultInk).slice(1).match(/../g).map(v => parseInt(v,16));
+      ctx.strokeStyle = (rgb[0]*299+rgb[1]*587+rgb[2]*114)/1000 > 140 ? '#000000' : '#ffffff';
+      s.text.split('\n').forEach((line,i) => {
+        ctx.strokeText(line,a[0],a[1]+i*lineHeight);
+        ctx.fillText(line,a[0],a[1]+i*lineHeight);
+      });
+      return;
+    }
+    ctx.beginPath();
+    if (s.tool === 'box') {
+      ctx.strokeRect(a[0], a[1], b[0]-a[0], b[1]-a[1]);
+    } else {
+      ctx.moveTo(a[0], a[1]);
+      if (s.tool === 'arrow') ctx.lineTo(b[0], b[1]);
+      else points.slice(1).forEach(p => ctx.lineTo(p[0], p[1]));
+      ctx.stroke();
+      if (s.tool === 'arrow' && (a[0] !== b[0] || a[1] !== b[1])) {
+        const angle = Math.atan2(b[1]-a[1], b[0]-a[0]);
+        ctx.beginPath();
+        ctx.moveTo(b[0]-20*Math.cos(angle-0.5), b[1]-20*Math.sin(angle-0.5));
+        ctx.lineTo(b[0], b[1]);
+        ctx.lineTo(b[0]-20*Math.cos(angle+0.5), b[1]-20*Math.sin(angle+0.5));
+        ctx.stroke();
+      } else if (points.length === 1) {
+        ctx.beginPath(); ctx.arc(a[0], a[1], 3, 0, Math.PI*2); ctx.fill();
+      }
+    }
+  }
+  function render() {
+    if (!loaded) return;
+    ctx.clearRect(0,0,__WIDTH__,__HEIGHT__); ctx.drawImage(image,0,0,__WIDTH__,__HEIGHT__);
+    strokes.forEach((s,i)=>{if(i!==editing)paint(s);}); if (active) paint(active);
+    addChat.disabled = !loaded || busy;
+    addChat.setAttribute('aria-busy', String(busy));
+    root.querySelectorAll('[data-tool]').forEach(button => { button.disabled = busy; });
+    color.disabled = busy;
+    textInput.disabled = busy;
+    textCancel.disabled = busy;
+    undo.disabled = !past.length || busy;
+    redo.disabled = !future.length || busy;
+    clear.disabled = !strokes.length || busy;
+    exportButton.disabled = busy || !loaded;
+    textAdd.disabled = busy || !textInput.value.trim();
+  }
+  function textMark() {
+    ctx.font = textFont;
+    const lines = [];
+    for (const paragraph of textInput.value.slice(0,240).split('\n')) {
+      let line = '';
+      for (const char of paragraph) {
+        if (line && ctx.measureText(line+char).width > Math.min(600, __WIDTH__ - 12)) {lines.push(line);line='';}
+        line += char;
+      }
+      lines.push(line);
+    }
+    const width = Math.max(...lines.map(line => ctx.measureText(line).width));
+    const x = Math.max(6,Math.min(draft[0],(__WIDTH__-6)-width));
+    const y = Math.max(6,Math.min(draft[1],(__HEIGHT__-6)-lines.length*lineHeight));
+    return {tool:'text',points:[[x,y]],ink,text:lines.join('\n'),fontSize,lineHeight,fontFamily:'sans-serif'};
+  }
+  function closeText() {
+    draft=null; editing=-1; textInput.value=''; textEditor.hidden=true; render();
+  }
+  function addText() {
+    if (!draft) return true;
+    if (textInput.value.trim()) {
+      if (textInput.value.split('\n').length>12) {status.textContent='Use up to 12 lines per text note.';return false;}
+      const mark = textMark();
+      if (mark.text.split('\n').length*lineHeight > __HEIGHT__-12) {status.textContent='This note is too tall. Use a shorter note.';return false;}
+      const next=copy(strokes); if(editing>=0)next[editing]=mark;else next.push(mark);
+      remember();strokes=next;
+    }
+    closeText();persist();status.textContent=`${strokes.length} marks`;return true;
+  }
+  // Only the host snapshot is simplified. Live strokes, history and PNGs stay exact.
+  function simplify(points, tolerance) {
+    if (points.length < 3) return points;
+    const keep = new Uint8Array(points.length), stack = [[0, points.length-1]];
+    keep[0] = keep[points.length-1] = 1;
+    while (stack.length) {
+      const [first,last] = stack.pop(), a = points[first], b = points[last];
+      const dx = b[0]-a[0], dy = b[1]-a[1], length = dx*dx+dy*dy;
+      let farthest = -1, distance = tolerance*tolerance;
+      for (let i=first+1;i<last;i++) {
+        const p = points[i], t = length ? Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/length)) : 0;
+        const d = (p[0]-a[0]-t*dx)**2+(p[1]-a[1]-t*dy)**2;
+        if (d>distance) {distance=d;farthest=i;}
+      }
+      if (farthest>=0) {keep[farthest]=1;stack.push([first,farthest],[farthest,last]);}
+    }
+    return points.filter((_,i)=>keep[i]);
+  }
+  function snapshot() {
+    const result = {modelContent:{version:1,source,width:__WIDTH__,height:__HEIGHT__,strokes},
+      privateContent:{tool,ink}};
+    const fits = () => new TextEncoder().encode(JSON.stringify(result)).length <= savedStateBytes;
+    if (fits()) return result;
+    const model = result.modelContent;
+    model.simplified = true;
+    model.totalMarks = strokes.length;
+    model.note = 'Compact drawing reference. The live canvas and exported PNG retain full detail; use the PNG for exact interpretation.';
+    for (let tolerance=1;tolerance<=Math.max(__WIDTH__,__HEIGHT__)*2;tolerance*=2) {
+      model.strokes = strokes.map(s=>s.tool==='pen' ? {...s,points:simplify(s.points,tolerance)} : s);
+      if (fits()) return result;
+    }
+    // Even thousands of separate text/box marks must not limit the live drawing.
+    // Save the largest recent subset that fits, and explicitly flag missing context.
+    const compact = model.strokes;
+    let low=0,high=compact.length;
+    while (low<high) {
+      const count=Math.ceil((low+high)/2);
+      model.strokes=compact.slice(compact.length-count);
+      model.omittedMarks=compact.length-count;
+      if(fits())low=count;else high=count-1;
+    }
+    model.strokes=compact.slice(compact.length-low);
+    model.omittedMarks=compact.length-low;
+    return result;
+  }
+  function persist() {
+    locallyEdited = true;
+    clearTimeout(saveTimer);
+    // Saving is best-effort and never replaces or blocks the editable drawing.
+    saveTimer = setTimeout(() => {
+      try { Promise.resolve(window.openai?.setWidgetState?.(snapshot())).catch(() => {}); }
+      catch (_) { /* Keep the full drawing and PNG export available. */ }
+    }, 150);
+  }
+  function restore(state) {
+    const s = state?.modelContent?.strokes ? {...state.modelContent,...state.privateContent} : state?.privateContent;
+    if (!s || s.version !== 1 || s.source !== source || !Array.isArray(s.strokes)) return;
+    const valid = s.strokes.every(v => v && ['pen','arrow','box','text'].includes(v.tool) &&
+      (v.ink === undefined || validInk(v.ink)) && Array.isArray(v.points) &&
+      (v.tool !== 'text' || (typeof v.text === 'string' && v.text.length<=260 && v.text.split('\n').length<=18)) &&
+      v.points.every(p => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite)));
+    if (!valid) return;
+    strokes = s.strokes;
+    restoredCompact = Boolean(s.simplified || s.omittedMarks);
+    ink = validInk(s.ink) ? s.ink : defaultInk;
+    color.value = ink;
+    if (['pen','arrow','box','text'].includes(s.tool)) tool = s.tool;
+    root.querySelectorAll('[data-tool]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tool === tool)));
+    render();
+  }
+  function finish(e) {
+    if (!active || (e && e.pointerId !== active.pointerId)) return;
+    const finished = {tool:active.tool,points:active.points,ink:active.ink};
+    active = null;
+    remember();strokes.push(finished);
+    if (e && canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+    render(); persist();
+    status.textContent = `${strokes.length} mark${strokes.length === 1 ? '' : 's'}`;
+  }
+  canvas.addEventListener('pointerdown', e => {
+    if (!loaded || busy || active || e.button !== 0) return;
+    if (!addText()) return;
+    e.preventDefault();
+    if (tool === 'text') {
+      const p=point(e);editing=-1;ctx.font=textFont;
+      for(let i=strokes.length-1;i>=0;i--){const s=strokes[i];if(s.tool!=='text')continue;const a=s.points[0],lines=s.text.split('\n'),w=Math.max(...lines.map(t=>ctx.measureText(t).width));if(p[0]>=a[0]-12&&p[0]<=a[0]+w+12&&p[1]>=a[1]-12&&p[1]<=a[1]+lines.length*lineHeight+12){editing=i;break;}}
+      draft=editing<0?p:strokes[editing].points[0];textInput.value=editing<0?'':strokes[editing].text;if(editing>=0){ink=strokes[editing].ink;color.value=ink;}textEditor.hidden=false;
+      textEditor.style.left=`clamp(0px, ${draft[0]/__WIDTH__*100}%, max(0px, 100% - 220px))`;
+      textEditor.style.top=`clamp(0px, ${draft[1]/__HEIGHT__*100}%, max(0px, 100% - 110px))`;
+      textInput.focus({preventScroll:true});render();return;
+    }
+    canvas.setPointerCapture(e.pointerId);
+    // Keep keyboard shortcuts in this frame after drawing, after editing text.
+    root.querySelector(`[data-tool="${tool}"]`).focus({preventScroll:true});
+    active = {tool,points:[point(e)],pointerId:e.pointerId,ink}; render();
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (!active || e.pointerId !== active.pointerId) return;
+    const p = point(e), last = active.points[active.points.length-1];
+    if (active.tool !== 'pen') active.points = [active.points[0],p];
+    else if (p[0] !== last[0] || p[1] !== last[1]) active.points.push(p);
+    render();
+  });
+  canvas.addEventListener('pointerup', finish);
+  canvas.addEventListener('pointercancel', finish);
+  canvas.addEventListener('lostpointercapture', finish);
+  root.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => {
+    if (!addText()) return;
+    tool=b.dataset.tool;
+    canvas.style.cursor=tool==='text'?'text':'crosshair';
+    root.querySelectorAll('[data-tool]').forEach(t => t.setAttribute('aria-pressed',String(t===b)));
+    persist();
+    status.textContent=tool==='text'?'Click the result to place text.':'Ready to mark up';
+  }));
+  textInput.addEventListener('input', render);
+  textInput.addEventListener('keydown', e => {
+    if (e.isComposing) return;
+    if (e.key==='Escape') {e.preventDefault();closeText();}
+    if (e.key==='Enter' && !e.shiftKey) {e.preventDefault();addText();root.querySelector('[data-tool="text"]').focus({preventScroll:true});}
+  });
+  textAdd.addEventListener('click',addText);
+  textCancel.addEventListener('click',closeText);
+  function undoDrawing() {
+    if (busy || (!active && !past.length)) return;
+    if (active) {
+      const id = active.pointerId;
+      active = null;
+      if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id);
+    } else {future.push(copy(strokes));strokes=past.pop();}
+    render(); persist(); status.textContent=`${strokes.length} marks`;
+  }
+  undo.addEventListener('click', undoDrawing);
+  function redoDrawing(){if(busy||!future.length)return;past.push(copy(strokes));strokes=future.pop();render();persist();}
+  redo.addEventListener('click',redoDrawing);
+  root.addEventListener('pointerdown',e=>{if(draft&&e.target!==canvas&&!textEditor.contains(e.target)&&e.target!==color)addText();});
+  window.addEventListener('keydown', e => {
+    if (e.defaultPrevented || e.isComposing || e.altKey ||
+      !(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
+    // Text fields retain their native text undo history.
+    if (e.target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
+    if (busy) return;
+    e.preventDefault(); e.stopPropagation(); e.shiftKey?redoDrawing():undoDrawing();
+  }, true);
+  color.addEventListener('input', () => {
+    if (!validInk(color.value)) return;
+    ink = color.value; render();persist();
+  });
+  clear.addEventListener('click', () => {remember();strokes=[]; closeText();render(); persist(); status.textContent='Marks cleared. Undo restores them.';});
+  addChat.addEventListener('click', async () => {
+    if (!loaded || busy || !addText()) return;
+    if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+      status.textContent='Clipboard is unavailable here. Use Save drawing, then attach the PNG in chat.';
+      return;
+    }
+    busy=true; render(); status.textContent='Copying image…';
+    try {
+      // Start the clipboard write during the click; PNG encoding resolves asynchronously.
+      const png = new Promise((resolve, reject) => canvas.toBlob(blob => {
+        if (blob) resolve(blob); else reject(new Error('PNG encoding failed'));
+      }, 'image/png'));
+      png.catch(() => {});
+      await navigator.clipboard.write([new ClipboardItem({'image/png':png})]);
+      status.textContent='Copied. Click the chat box and paste (Ctrl+V / ⌘V) to attach it.';
+    } catch (_) {
+      status.textContent='Could not copy the image. Use Save drawing, then attach the PNG in chat.';
+    } finally { busy=false; render(); }
+  });
+  exportButton.addEventListener('click', () => {
+    if (!addText()) return;
+    try {
+      render();const a=document.createElement('a');a.download='marked-result.png';a.href=canvas.toDataURL('image/png');a.click();
+      status.textContent='Attach the saved drawing in chat with your instructions.';
+    } catch (_) {status.textContent='Could not save the drawing. Your marks are still here; try again.';}
+  });
+  window.addEventListener('openai:set_globals', e => {
+    if (!locallyEdited && !active && !draft && !busy && e.detail?.globals?.widgetState) restore(e.detail.globals.widgetState);
+  });
+  restore(window.openai?.widgetState);
+  image.onload=()=>{loaded=true;render();status.textContent=restoredCompact?'Restored a compact preview. The previously exported PNG retains the original detail.':'Ready to mark up';};
+  image.onerror=()=>{status.textContent='Screenshot could not load.';};
+  image.src='__IMAGE_DATA_URL__';
+})();
+</script>
