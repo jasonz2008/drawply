@@ -1,19 +1,25 @@
 <style>
-#__REVIEW_ID__ { display: grid; gap: 12px; }
+#__REVIEW_ID__ { display: grid; gap: 12px; min-width: 0; box-sizing: border-box; border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
 #__REVIEW_ID__ .review-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-inline-end: 90px; }
 #__REVIEW_ID__ .review-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 #__REVIEW_ID__ .review-add { margin-inline-start: auto; background: #2563eb; color: #ffffff; }
 #__REVIEW_ID__ .review-add:hover:not(:disabled) { background: #1d4ed8; }
-#__REVIEW_ID__ .review-stage { width: 100%; position: relative; }
+#__REVIEW_ID__ .review-stage { width: 100%; min-width: 0; box-sizing: border-box; position: relative; }
 #__REVIEW_ID__ canvas { display: block; width: 100%; height: auto; touch-action: none; cursor: crosshair; }
 #__REVIEW_ID__ .review-text-editor { position: absolute; width: min(220px, 100%); z-index: 1; }
 #__REVIEW_ID__ .review-stage { border: 1px solid var(--border); }
 #__REVIEW_ID__ .review-text-editor textarea { field-sizing: content; }
-#__REVIEW_ID__ .review-text-editor[hidden] { display: none; }
+#__REVIEW_ID__ .review-text-editor[hidden], #__REVIEW_ID__ #review-selection[hidden] { display: none; }
+#__REVIEW_ID__ #review-selection { display:flex; flex-wrap:wrap; align-items:end; gap:8px; }
+#__REVIEW_ID__ #review-selection label { min-width:0; flex:0 1 170px; }
+#__REVIEW_ID__ .review-dimensions { max-width:100%; }
+#__REVIEW_ID__ .review-dimensions .viz-row { margin-top:8px; }
+#__REVIEW_ID__ #review-selection input, #__REVIEW_ID__ #review-selection select { width:100%; box-sizing:border-box; }
 </style>
 <div id="__REVIEW_ID__">
   <div class="review-toolbar" aria-label="Drawing tools">
     <div class="review-tools">
+    <button type="button" class="btn" data-tool="select" aria-pressed="false"><i data-lucide="mouse-pointer-2" aria-hidden="true"></i> Select</button>
     <button type="button" class="btn" data-tool="pen" aria-pressed="true"><i data-lucide="pencil" aria-hidden="true"></i> Pen</button>
     <button type="button" class="btn" data-tool="arrow" aria-pressed="false"><i data-lucide="move-up-right" aria-hidden="true"></i> Arrow</button>
     <button type="button" class="btn" data-tool="box" aria-pressed="false"><i data-lucide="square" aria-hidden="true"></i> Box</button>
@@ -39,6 +45,15 @@
     </datalist>
     <button type="button" class="btn btn-ghost" id="review-export" data-tooltip="Save your drawing, then attach it in the chat" disabled><i data-lucide="download" aria-hidden="true"></i> Save drawing</button>
   </div>
+  <div class="viz-controls" id="review-selection" hidden>
+    <label class="form-label">Element <select class="form-select" data-elements aria-label="Selected element"><option value="">Choose an element</option></select></label>
+    <button type="button" class="btn btn-ghost" data-parent data-tooltip="Select parent (Escape)"><i data-lucide="corner-left-up" aria-hidden="true"></i> Up</button>
+    <details class="review-dimensions"><summary>Size &amp; rotation</summary><div class="viz-row">
+    <label class="form-label">Width <input class="form-control" data-width type="number" step="0.1" min="0.1" aria-label="Element width"></label>
+    <label class="form-label">Height <input class="form-control" data-height type="number" step="0.1" min="0.1" aria-label="Element height"></label>
+    <label class="form-label">Rotation ° <input class="form-control" data-angle type="number" step="1" aria-label="Element rotation"></label>
+    </div></details>
+  </div>
   <div class="review-stage">
     <canvas id="review-canvas" width="__WIDTH__" height="__HEIGHT__" role="img" aria-label="Visual result. Draw corrections with a mouse or touch, then describe changes in the chat.">Visual result for annotation.</canvas>
     <div id="review-text-editor" class="review-text-editor card" hidden>
@@ -53,6 +68,7 @@
 </div>
 <script>
 (() => {
+__SELECT_RUNTIME__
   const root = document.getElementById('__REVIEW_ID__');
   const canvas = root.querySelector('#review-canvas');
   const ctx = canvas.getContext('2d');
@@ -76,7 +92,12 @@
   let locallyEdited = false, restoredCompact = false, saveTimer;
   const copy = items => items.slice();
   const redo = root.querySelector('#review-redo');
-  function remember() { past.push(copy(strokes)); if(past.length>50)past.shift(); future=[]; }
+  const scene = __SCENE_JSON__;
+  const selection = createSelection({scene,canvas,ctx,bar:root.querySelector('#review-selection'),status,
+    change:()=>{remember();persist();},redraw:()=>render()});
+  const stateCopy=()=>({strokes:copy(strokes),transforms:selection.snapshot()});
+  function applyState(s){strokes=s.strokes;selection.restore(s.transforms);}
+  function remember() { past.push(stateCopy()); if(past.length>50)past.shift(); future=[]; }
   // Annotation ink is a user-selected color and must survive theme changes.
   const defaultInk = '#ff453a';
   let ink = defaultInk;
@@ -125,10 +146,11 @@
       }
     }
   }
-  function render() {
+  function render(showSelection=true) {
     if (!loaded) return;
-    ctx.clearRect(0,0,__WIDTH__,__HEIGHT__); ctx.drawImage(image,0,0,__WIDTH__,__HEIGHT__);
+    ctx.clearRect(0,0,__WIDTH__,__HEIGHT__); if(!selection.draw())ctx.drawImage(image,0,0,__WIDTH__,__HEIGHT__);
     strokes.forEach((s,i)=>{if(i!==editing)paint(s);}); if (active) paint(active);
+    if(showSelection)selection.overlay();
     addChat.disabled = !loaded || busy;
     addChat.setAttribute('aria-busy', String(busy));
     root.querySelectorAll('[data-tool]').forEach(button => { button.disabled = busy; });
@@ -192,6 +214,7 @@
   function snapshot() {
     const result = {modelContent:{version:1,source,width:__WIDTH__,height:__HEIGHT__,strokes},
       privateContent:{tool,ink}};
+    if(scene){result.modelContent.sceneId=scene.id;result.modelContent.transforms=selection.snapshot();}
     const fits = () => new TextEncoder().encode(JSON.stringify(result)).length <= savedStateBytes;
     if (fits()) return result;
     const model = result.modelContent;
@@ -214,6 +237,10 @@
     }
     model.strokes=compact.slice(compact.length-low);
     model.omittedMarks=compact.length-low;
+    if(!fits() && model.transforms){
+      const entries=Object.entries(model.transforms);model.totalTransforms=entries.length;
+      while(entries.length && !fits()){entries.shift();model.transforms=Object.fromEntries(entries);model.omittedTransforms=model.totalTransforms-entries.length;}
+    }
     return result;
   }
   function persist() {
@@ -234,14 +261,17 @@
       v.points.every(p => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite)));
     if (!valid) return;
     strokes = s.strokes;
+    if(scene && s.sceneId===scene.id)selection.restore(s.transforms);
     restoredCompact = Boolean(s.simplified || s.omittedMarks);
     ink = validInk(s.ink) ? s.ink : defaultInk;
     color.value = ink;
-    if (['pen','arrow','box','text'].includes(s.tool)) tool = s.tool;
+    if (['select','pen','arrow','box','text'].includes(s.tool)) tool = s.tool;
+    selection.enable(tool==='select');
     root.querySelectorAll('[data-tool]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tool === tool)));
     render();
   }
   function finish(e) {
+    if(e && selection.active){selection.finish(e,e.type!=='pointerup');render();persist();return;}
     if (!active || (e && e.pointerId !== active.pointerId)) return;
     const finished = {tool:active.tool,points:active.points,ink:active.ink};
     active = null;
@@ -254,6 +284,7 @@
     if (!loaded || busy || active || e.button !== 0) return;
     if (!addText()) return;
     e.preventDefault();
+    if (tool === 'select') {selection.down(point(e),e);root.querySelector('[data-tool="select"]').focus({preventScroll:true});return;}
     if (tool === 'text') {
       const p=point(e);editing=-1;ctx.font=textFont;
       for(let i=strokes.length-1;i>=0;i--){const s=strokes[i];if(s.tool!=='text')continue;const a=s.points[0],lines=s.text.split('\n'),w=Math.max(...lines.map(t=>ctx.measureText(t).width));if(p[0]>=a[0]-12&&p[0]<=a[0]+w+12&&p[1]>=a[1]-12&&p[1]<=a[1]+lines.length*lineHeight+12){editing=i;break;}}
@@ -268,6 +299,7 @@
     active = {tool,points:[point(e)],pointerId:e.pointerId,ink}; render();
   });
   canvas.addEventListener('pointermove', e => {
+    if(selection.active){selection.move(point(e),e);return;}
     if (!active || e.pointerId !== active.pointerId) return;
     const p = point(e), last = active.points[active.points.length-1];
     if (active.tool !== 'pen') active.points = [active.points[0],p];
@@ -280,10 +312,11 @@
   root.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => {
     if (!addText()) return;
     tool=b.dataset.tool;
-    canvas.style.cursor=tool==='text'?'text':'crosshair';
+    canvas.style.cursor=tool==='text'?'text':tool==='select'?'default':'crosshair';
+    selection.enable(tool==='select');
     root.querySelectorAll('[data-tool]').forEach(t => t.setAttribute('aria-pressed',String(t===b)));
     persist();
-    status.textContent=tool==='text'?'Click the result to place text.':'Ready to mark up';
+    if(tool!=='select')status.textContent=tool==='text'?'Click the result to place text.':'Ready to mark up';
   }));
   textInput.addEventListener('input', render);
   textInput.addEventListener('keydown', e => {
@@ -294,19 +327,21 @@
   textAdd.addEventListener('click',addText);
   textCancel.addEventListener('click',closeText);
   function undoDrawing() {
+    if(!busy && selection.cancel()){render();persist();return;}
     if (busy || (!active && !past.length)) return;
     if (active) {
       const id = active.pointerId;
       active = null;
       if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id);
-    } else {future.push(copy(strokes));strokes=past.pop();}
+    } else {future.push(stateCopy());applyState(past.pop());}
     render(); persist(); status.textContent=`${strokes.length} marks`;
   }
   undo.addEventListener('click', undoDrawing);
-  function redoDrawing(){if(busy||!future.length)return;past.push(copy(strokes));strokes=future.pop();render();persist();}
+  function redoDrawing(){if(!busy && selection.cancel()){render();persist();return;}if(busy||!future.length)return;past.push(stateCopy());applyState(future.pop());render();persist();}
   redo.addEventListener('click',redoDrawing);
   root.addEventListener('pointerdown',e=>{if(draft&&e.target!==canvas&&!textEditor.contains(e.target)&&e.target!==color)addText();});
   window.addEventListener('keydown', e => {
+    if(!busy && !e.defaultPrevented && !e.isComposing && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target?.closest?.('input, textarea, select, [contenteditable]') && selection.key(e)){e.preventDefault();persist();return;}
     if (e.defaultPrevented || e.isComposing || e.altKey ||
       !(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
     // Text fields retain their native text undo history.
@@ -325,7 +360,7 @@
       status.textContent='Clipboard is unavailable here. Use Save drawing, then attach the PNG in chat.';
       return;
     }
-    busy=true; render(); status.textContent='Copying image…';
+    busy=true; render(false); status.textContent='Copying image…';
     try {
       // Start the clipboard write during the click; PNG encoding resolves asynchronously.
       const png = new Promise((resolve, reject) => canvas.toBlob(blob => {
@@ -341,15 +376,15 @@
   exportButton.addEventListener('click', () => {
     if (!addText()) return;
     try {
-      render();const a=document.createElement('a');a.download='marked-result.png';a.href=canvas.toDataURL('image/png');a.click();
+      render(false);const a=document.createElement('a');a.download='marked-result.png';a.href=canvas.toDataURL('image/png');a.click();render();
       status.textContent='Attach the saved drawing in chat with your instructions.';
     } catch (_) {status.textContent='Could not save the drawing. Your marks are still here; try again.';}
   });
   window.addEventListener('openai:set_globals', e => {
-    if (!locallyEdited && !active && !draft && !busy && e.detail?.globals?.widgetState) restore(e.detail.globals.widgetState);
+    if (!locallyEdited && !active && !selection.active && !draft && !busy && e.detail?.globals?.widgetState) restore(e.detail.globals.widgetState);
   });
   restore(window.openai?.widgetState);
-  image.onload=()=>{loaded=true;render();status.textContent=restoredCompact?'Restored a compact preview. The previously exported PNG retains the original detail.':'Ready to mark up';};
+  image.onload=async()=>{try{await selection.load();}catch(_){status.textContent='Editable layers could not load. Drawing on the original image is still available.';loaded=true;render();return;}loaded=true;render();status.textContent=restoredCompact?'Restored a compact preview. The previously exported PNG retains the original detail.':'Ready to mark up';selection.enable(tool==='select');};
   image.onerror=()=>{status.textContent='Screenshot could not load.';};
   image.src='__IMAGE_DATA_URL__';
 })();

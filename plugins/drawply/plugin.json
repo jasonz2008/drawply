@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "drawply",
-  "version": "0.3.6",
+  "version": "0.4.2",
   "description": "Annotate generated visual results inline in supported Codex chats and apply visual feedback.",
   "author": {
     "name": "jasonz2008",

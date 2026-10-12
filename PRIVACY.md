@@ -1,8 +1,8 @@
 # Drawply privacy
 
-Version 0.3.6, October 10, 2026
+Version 0.4.2, October 12, 2026
 
-The renderer reads the chosen local PNG and writes HTML containing that image and its local source path. The inline editor can share annotation text, coordinates, colors and the source path with the AI host through its widget-state bridge as you edit. Host persistence and model delivery are host-controlled and best-effort. The plugin has no Drawply-operated network endpoint, telemetry, account or advertising system.
+The renderer reads the chosen local PNG and writes HTML containing that image and its local source path. For source-backed selection, the renderer also reads the supplied element map and its referenced local PNG layers, embedding the element hierarchy, text, colors, geometry, and images in the review. The inline editor can share annotation text, coordinates, colors, element IDs, transformation values, scene identity and the source path with the AI host through its widget-state bridge as you edit. Host persistence and model delivery are host-controlled and best-effort. The plugin has no Drawply-operated network endpoint, telemetry, account or advertising system.
 
 Add to chat writes the marked PNG to your system clipboard only when you click it and permission allows; it does not read the clipboard or paste automatically. Clipboard contents may be available to other apps or your OS clipboard history. Saving a PNG writes a download; it does not automatically attach it to chat. Chats, attachments and host state follow the host's terms and account settings. Do not share secrets or images you lack rights to share. Drawing over content is not secure redaction: generated HTML embeds the original image.
 

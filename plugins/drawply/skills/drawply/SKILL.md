@@ -5,7 +5,7 @@ description: Automatically present visual results with Drawply inline when creat
 
 # Drawply
 
-Present annotation controls directly in the conversation, using the result already available locally. Do not ask the user to screenshot it. Keep only pen, arrow, box, editable text, color, undo/redo, clear, Add to chat, and Save drawing. Instructions and reference attachments belong in the native chat composer. Never open a browser, sidebar, or local server unless the user asks for one.
+Present annotation controls directly in the conversation, using the result already available locally. Do not ask the user to screenshot it. Keep Select, pen, arrow, box, editable text, color, undo/redo, clear, Add to chat, and Save drawing. Keep selection details contextual. Instructions and reference attachments belong in the native chat composer. Never open a browser, sidebar, or local server unless the user asks for one.
 
 Use Drawply by default whenever you are about to show the user a visual result. Do not wait for `$drawply` or a request to annotate. Preserve existing interactive results; show a Drawply review of a captured result alongside them only when useful. Honor an explicit request for a plain image or another presentation.
 
@@ -16,6 +16,10 @@ Use Drawply by default whenever you are about to show the user a visual result. 
 3. Display the generated HTML using the host's documented inline content reference in the final response. Do not also display a duplicate plain screenshot. Each source image gets its own review; no server or credentials are required.
 
 Command: node <skill-root>/scripts/render-inline.mjs <absolute-result.png> <absolute-review.html>
+
+## Selectable results
+
+For UI results Codex creates or revises, prepare selectable object layers from the underlying source when available. Read [references/selectable-results.md](references/selectable-results.md) for the element-map format and preparation rules. Pass the map as the renderer's third argument. Selection supports drag-box multi-selection, nested parts, movement, resizing, rotation, and text characters without a separate model or service. Uploaded pictures are not automatically analyzed. If only a flat image is available, retain drawing and explain why Select needs source layers; do not substitute guessed rectangular crops.
 
 ## Feedback
 

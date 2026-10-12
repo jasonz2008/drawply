@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-12T12:52:15.118Z",
+  "title": "Design System: Drawply Inline Editor",
+  "extensions": {
+    "breakpoints": [],
+    "shadows": [],
+    "motion": [],
+    "colorMeta": {
+      "action-blue": {
+        "role": "primary",
+        "displayName": "Action Blue",
+        "tonalRamp": [
+          "oklch(0.15 0.245 262.881)",
+          "oklch(0.26 0.245 262.881)",
+          "oklch(0.38 0.245 262.881)",
+          "oklch(0.49 0.245 262.881)",
+          "oklch(0.61 0.245 262.881)",
+          "oklch(0.72 0.245 262.881)",
+          "oklch(0.84 0.245 262.881)",
+          "oklch(0.95 0.245 262.881)"
+        ]
+      },
+      "action-blue-hover": {
+        "role": "primary",
+        "displayName": "Action Blue Hover",
+        "tonalRamp": [
+          "oklch(0.15 0.243 264.376)",
+          "oklch(0.26 0.243 264.376)",
+          "oklch(0.38 0.243 264.376)",
+          "oklch(0.49 0.243 264.376)",
+          "oklch(0.61 0.243 264.376)",
+          "oklch(0.72 0.243 264.376)",
+          "oklch(0.84 0.243 264.376)",
+          "oklch(0.95 0.243 264.376)"
+        ]
+      },
+      "action-text": {
+        "role": "neutral",
+        "displayName": "Action White",
+        "tonalRamp": [
+          "oklch(0.15 0 0)",
+          "oklch(0.26 0 0)",
+          "oklch(0.38 0 0)",
+          "oklch(0.49 0 0)",
+          "oklch(0.61 0 0)",
+          "oklch(0.72 0 0)",
+          "oklch(0.84 0 0)",
+          "oklch(0.95 0 0)"
+        ]
+      }
+    }
+  },
+  "components": [
+    {
+      "name": "Add to chat",
+      "kind": "button",
+      "refersTo": "add-to-chat",
+      "description": "Local primary colors over host button geometry; this isolated preview retains browser-native geometry because the host stylesheet is external.",
+      "html": "<button class=\"ds-add\" type=\"button\">Add to chat</button>",
+      "css": ".ds-add{background:#2563eb;color:#ffffff;margin-inline-start:auto}.ds-add:hover:not(:disabled){background:#1d4ed8}"
+    },
+    {
+      "name": "Element picker",
+      "kind": "input",
+      "description": "Native selection input; the host supplies production form styling.",
+      "html": "<label class=\"ds-element\">Element <select aria-label=\"Selected element\"><option>Choose an element</option><option>Continue button</option><option>&nbsp;&nbsp;Label</option></select></label>",
+      "css": ".ds-element{display:block;min-width:0;flex:0 1 170px}.ds-element select{width:100%;box-sizing:border-box}"
+    },
+    {
+      "name": "Size and rotation",
+      "kind": "custom",
+      "description": "Native collapsed disclosure; host form typography and focus styling apply in production.",
+      "html": "<details class=\"ds-dimensions\"><summary>Size &amp; rotation</summary><div class=\"ds-row\"><label>Width <input type=\"number\" value=\"120\" min=\"0.1\" step=\"0.1\"></label><label>Height <input type=\"number\" value=\"40\" min=\"0.1\" step=\"0.1\"></label><label>Rotation ° <input type=\"number\" value=\"0\" step=\"1\"></label></div></details>",
+      "css": ".ds-dimensions{max-width:100%}.ds-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.ds-row label{min-width:0;flex:0 1 170px}.ds-row input{width:100%;box-sizing:border-box}"
+    },
+    {
+      "name": "Wrapping toolbar",
+      "kind": "custom",
+      "description": "Local flex layout only; native preview buttons stand in for externally supplied host controls and Lucide icons.",
+      "html": "<div class=\"ds-toolbar\" aria-label=\"Drawing tools\"><div class=\"ds-tools\"><button type=\"button\" aria-pressed=\"true\">Select</button><button type=\"button\" aria-pressed=\"false\">Pen</button><button type=\"button\" aria-pressed=\"false\">Arrow</button><button type=\"button\" aria-pressed=\"false\">Box</button><button type=\"button\" aria-pressed=\"false\">Text</button></div></div>",
+      "css": ".ds-toolbar,.ds-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.ds-toolbar{padding-inline-end:90px}"
+    },
+    {
+      "name": "Image stage",
+      "kind": "custom",
+      "description": "Full-width stage with a host border; empty canvas intentionally carries no sample artwork identity.",
+      "html": "<div class=\"ds-stage\"><canvas width=\"600\" height=\"220\" aria-label=\"Visual result\"></canvas></div>",
+      "css": ".ds-stage{position:relative;width:100%;border:1px solid var(--border)}.ds-stage canvas{display:block;width:100%;height:auto;touch-action:none;cursor:crosshair}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Visual feedback in the conversation",
+    "overview": "Extend the existing inline editor without creating a new visual identity. The image remains the main surface; the compact toolbar uses the host's controls and Lucide icons. Instructions and reference attachments belong in the native chat composer.\n\nThis document describes the shipped inline editor, not the parent website or artwork displayed inside its canvas. Authority: plugins/drawply/skills/drawply/assets/inline-review.html and selection.js; product boundaries are in PRODUCT.md.",
+    "keyCharacteristics": [
+      "Host-native controls with visible tool labels.",
+      "Flexible rows around a full-width image.",
+      "Contextual selection controls and collapsed numeric adjustments."
+    ],
+    "rules": [
+      {
+        "name": "The Host Palette Rule",
+        "body": "Reuse host tokens for editor chrome; the canvas artwork has its own independent palette. Ink colors are annotation choices, not interface identity colors.",
+        "section": "colors"
+      },
+      {
+        "name": "The Host Type Rule",
+        "body": "Preserve host typography instead of turning test-harness font defaults or canvas text into editor tokens.",
+        "section": "typography"
+      }
+    ],
+    "dos": [
+      "Do inherit host controls, typography, icons, focus, and neutral colors.",
+      "Do keep numeric adjustments contextual and collapsed initially.",
+      "Do let toolbar rows wrap while the canvas preserves its aspect ratio.",
+      "Do preserve annotations and undo/redo when extending selection behavior."
+    ],
+    "donts": [
+      "Don't introduce a separate instruction composer inside the editor.",
+      "Don't imply automatic object recognition, direct source mutation, or automatic chat attachment.",
+      "Don't treat sample artwork or test-harness styling as editor design tokens."
+    ]
+  }
+}
